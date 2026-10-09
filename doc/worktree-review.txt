@@ -1,0 +1,122 @@
+*worktree-review.txt*  Worktree and Git review workspace
+
+==============================================================================
+INTRODUCTION                                              *worktree-review*
+
+Requires Neovim 0.10+ and Git 2.31+. No Lua plugin dependencies. Windows is
+the primary platform. Copilot CLI is optional; Windows CLI needs PowerShell 6+.
+
+The overview is the entry point. Each opened worktree has its own tab-local
+directory, real file buffers, review selection and optional terminal process.
+These stay in memory for the current session only. Git always describes disk
+and index contents, whereas Unsaved describes the live editor buffer.
+
+==============================================================================
+INSTALLATION                                      *worktree-review-install*
+
+lazy.nvim: >lua
+  {
+    "andikon/neovim-copilot",
+    cmd = "WorktreeReview",
+    main = "worktree_review",
+    opts = {},
+  }
+<
+vim.pack on Neovim 0.12+: >lua
+  vim.pack.add({ { src = "https://github.com/andikon/neovim-copilot" } })
+  require("worktree_review").setup({})
+<
+Remote install requires this implementation to be committed and pushed.
+For a working local checkout, lazy.nvim's dir option loads uncommitted files.
+
+==============================================================================
+COMMANDS                                         *:WorktreeReview*
+
+:WorktreeReview                  Open worktree overview (background fetch).
+:WorktreeReview worktrees        Return to overview; fetch on each visit.
+:WorktreeReview changes          Open active worktree's review tab.
+:WorktreeReview create           New or available existing branch and worktree.
+:WorktreeReview remove           Remove clean linked worktree; optionally -d
+                                its branch. Never removes main checkout.
+:WorktreeReview refresh          Refresh local Git state.
+:WorktreeReview fetch            Fetch --all; --prune by default.
+:WorktreeReview pull             Explicit upstream, fast-forward only.
+:WorktreeReview push             Explicit single branch target; first push
+                                sets upstream. Never force pushes.
+:WorktreeReview stage            Stage selected whole file, including rename.
+:WorktreeReview unstage          Change index only; retains live file text.
+:WorktreeReview edit             Show selected real Working File with Index
+                                as base. Missing files are not recreated.
+:WorktreeReview commit           Open retained multiline draft. Ctrl-s submits.
+:WorktreeReview copilot          Toggle worktree's one Copilot terminal.
+:WorktreeReview copilot-stop     Confirm and stop that worktree's running job.
+:WorktreeReview copilot-restart  Explicit restart after job exit.
+:WorktreeReview copilot-enlarge  Toggle large terminal height.
+:WorktreeReview details          Show recorded Git error details.
+:checkhealth worktree_review     Check Neovim, Git, CLI and PowerShell.
+
+Overview commands target its selected row; review commands target its tab.
+Outside a repository the plugin reports a discovery error, without Git init.
+
+==============================================================================
+KEYS                                             *worktree-review-keys*
+
+Overview: Enter opens, a creates, d removes, f fetches, p pulls, P pushes,
+E shows fetch errors. Navigation: j/k preview selections; Enter applies or
+focuses a diff. History: + loads another page, i shows details, m chooses a
+merge parent. File list: s stages, u unstages, e edits current Working File,
+Space marks files, S/U stage/unstage marked files, L explicitly loads large
+content. Lists: c commit, r refresh, q hide, ? help, Tab/Shift-Tab focus pane.
+Diffs: native ]c/[c, Ctrl-w and normal editing. Commit: Ctrl-s submits,
+q in normal mode closes while retaining draft. No global mappings by default.
+Terminal keys remain available to Copilot; use terminal-normal mode for Ex.
+
+==============================================================================
+COMPARISONS                                      *worktree-review-diff*
+
+Unstaged: Index -> editable Working File. Untracked: empty -> Working File.
+Staged: HEAD -> Index (both read-only). History: Parent -> Commit (read-only).
+Root commit: empty -> Commit. Merge commit: first parent by default, or choose
+another with m. Renames compare the original path with the new path. Deleted
+Working Files use immutable empty placeholders. :w in the real right pane
+writes disk only and preserves index contents and normal write autocommands.
+
+Binary and special Working Files show metadata. Raw Git blobs retain CRLF and
+no-final-newline metadata. Neovim's normal reader/writer handles real files.
+Git attributes/textconv filters are not applied to virtual Git blob buffers.
+No LFS downloads or recursive submodule actions. Large files need L.
+
+External file changes reload clean buffers. Unsaved text offers Keep editor
+content, Reload file, or Cancel. Keep acknowledges only the observed disk
+version. Save and stage are blocked until any newer conflict is resolved.
+Git integration conflicts are separately marked; resolve them outside this
+plugin. Git locks are never deleted. Removal and pull require clean disk and
+no unsaved text. Removal additionally requires no running Copilot process.
+
+==============================================================================
+CONFIGURATION                                    *worktree-review-setup*
+
+Call require('worktree_review').setup({...}) before first use. Without setup,
+the command initializes documented defaults. All groups are optional:
+
+git: executable='git', auto_fetch_on_overview=true, fetch_prune=true,
+  pull_strategy='ff-only', default_remote=nil.
+worktrees: location='sibling', preserve_session_state=true,
+  show_setup_notice=true. State is always retained within the session.
+review: history_page_size=100, selection_delay_ms=80, navigation_width=26,
+  files_width=32, large_file_bytes=2097152, large_file_lines=50000.
+refresh: watch_files=true, debounce_ms=200, poll_interval_ms=2000.
+copilot: enabled=true, command={'copilot'}, shell='auto', position='bottom',
+  height_ratio=0.30. shell may be an executable path on Windows. PowerShell
+  arguments are quoted as literals; no execution policy changes are made.
+keymaps: global=false, local_defaults=true. global=true sets <leader>gw and
+  <leader>ga. local_defaults=false leaves command-driven operation available.
+
+Fast-forward-only pull, sibling worktrees and bottom terminal are the
+supported policies. Setting Copilot enabled=false leaves all Git features.
+Configuration errors name the invalid field. Automatic fetch is triggered
+by entering the overview, never by polling or a redraw. Errors remain
+available through details; fetch timestamps cover successful plugin fetches
+in this session only. No autosave, autocommit, autopush or review snapshots.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:
