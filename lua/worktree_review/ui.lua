@@ -4,6 +4,18 @@ local G = require('worktree_review.git')
 local Context = require('worktree_review.context')
 local B = require('worktree_review.buffers')
 local M = { ns = vim.api.nvim_create_namespace('WorktreeReview') }
+local function highlight(b, row, group, first, last)
+  vim.api.nvim_buf_add_highlight(b, M.ns, group, row - 1, first or 0, last or -1)
+end
+local function highlight_keys(b, row, line)
+  local start = 1
+  while true do
+    local first, last = line:find('%b[]', start)
+    if not first then return end
+    highlight(b, row, 'SpecialKey', first - 1, last)
+    start = last + 1
+  end
+end
 local function valid(w) return w and vim.api.nvim_win_is_valid(w) end
 local function map(b, key, fn)
   if C.values.keymaps.local_defaults then vim.keymap.set('n', key, fn, { buffer = b, silent = true, nowait = true }) end
@@ -13,7 +25,9 @@ local function common(b, ctx)
   map(b, 'c', function() require('worktree_review.actions').commit(ctx) end)
   map(b, '<Tab>', function() vim.cmd('wincmd w') end)
   map(b, '<S-Tab>', function() vim.cmd('wincmd W') end)
-  map(b, '?', function() U.details('Worktree Review help', 'Overview: Enter open, a create, d remove, f fetch, p pull, P push\nReview: Enter diff, s stage, u unstage, e edit Working File, c commit\nSpace mark file, S stage marked, U unstage marked, L load large file\nHistory: Enter select, m choose merge parent, + load more, i details\nr refresh, q hide, Tab switch pane. :WorktreeReview copilot toggles CLI.\nDiff: ]c / [c move between hunks. Working File: normal editing and :w.\nCommit: Ctrl-s submit, q close in normal mode; draft retained on failure.') end)
+  map(b, '?', function()
+    U.details('Worktree Review help', 'OVERVIEW · Enter open · a create · d remove · f fetch · p/P pull/push · r refresh · E details\nREVIEW · Enter diff · s/u stage/unstage · e edit Working File · c commit\nFILES · Space mark · S/U stage/unstage marked · L load large content\nHISTORY · Enter select · m choose merge parent · + load more · i commit details\nNAVIGATION · j/k move · Tab/Shift-Tab switch pane · q hide · r refresh\nDIFF · ]c/[c move hunks · Ctrl-w navigate · Working File supports normal editing and :w\nCOMMIT · Ctrl-s submit · q close in normal mode; draft retained on failure')
+  end)
 end
 local function statusline(ctx, label, b)
   if b and vim.bo[b].buftype == '' and not vim.bo[b].endofline then label = label .. ' · no final newline' end
@@ -22,9 +36,10 @@ local function statusline(ctx, label, b)
   return (' %s · %s%s%s '):format(U.display(ctx.branch or 'Detached HEAD'), label, modified, conflict):gsub('%%', '%%%%')
 end
 function M.selected(repo)
+  if #repo.worktrees == 0 then return nil end
   local view = repo.overview
-  local row = view and valid(view.win) and vim.api.nvim_win_get_cursor(view.win)[1] or 3
-  return repo.worktrees[math.max(1, row - 2)] or repo.worktrees[1]
+  local row = view and valid(view.win) and vim.api.nvim_win_get_cursor(view.win)[1] or 1
+  return view and view.worktree_rows and view.worktree_rows[row] or repo.worktrees[1]
 end
 local function paint(b, row, group)
   vim.api.nvim_buf_add_highlight(b, M.ns, group, row - 1, 0, -1)
@@ -33,8 +48,18 @@ function M.render_overview(repo)
   local v = repo.overview
   if not v or not vim.api.nvim_buf_is_valid(v.buf) then return end
   local frames = { '|', '/', '-', '\\' }
-  local fetch = repo.fetching and (' | ' .. frames[(repo.spinner_tick or 0) % #frames + 1] .. ' Fetching …') or (repo.fetch_error and ' | Fetch failed (E: details)' or '')
-  local lines = { 'Worktrees' .. fetch, 'Enter open · a create · d remove · f fetch · p pull · P push · r refresh · q hide' }
+  local fetch = repo.fetching and (frames[(repo.spinner_tick or 0) % #frames + 1] .. ' Fetching')
+    or (repo.fetch_error and 'Fetch failed · press E for details' or 'Git workspaces in this repository')
+  local lines = { 'A focused workspace for branches, changes, and review', fetch, '' }
+  if C.values.keymaps.local_defaults then
+    lines[#lines + 1] = 'ACTIONS'
+    lines[#lines + 1] = '[Enter] Open  [a] Create  [d] Remove  [f] Fetch  [p] Pull  [P] Push  [r] Refresh  [E] Details'
+    lines[#lines + 1] = 'Move with j/k  ·  [?] Help  ·  [q] Close'
+    lines[#lines + 1] = ''
+  end
+  lines[#lines + 1] = 'WORKTREES'
+  v.first_worktree_row = #lines + 1
+  v.worktree_rows, v.worktree_item_rows = {}, {}
   for _, ctx in ipairs(repo.worktrees) do
     local s = ctx.status
     local state = ctx.missing and 'Missing' or (ctx.locked and 'Locked' or (ctx.error and 'Status unavailable' or 'Loading …'))
@@ -44,34 +69,59 @@ function M.render_overview(repo)
       if ctx.locked then state = state .. ' · Locked: ' .. U.display(type(ctx.locked) == 'string' and ctx.locked or 'locked') end
     end
     local unsaved = #Context.unsaved(ctx)
-    lines[#lines + 1] = ('%s %s · %s · %s%s · Copilot %s'):format(Context.active() == ctx and '>' or ' ', U.display(vim.fs.basename(ctx.root)),
-      U.display(ctx.branch or 'Detached HEAD'), state, unsaved > 0 and (' · %d unsaved'):format(unsaved) or '', ctx.copilot and ctx.copilot.state or 'not started')
+    local item_row = #lines + 1
+    v.worktree_item_rows[#v.worktree_item_rows + 1] = item_row
+    v.worktree_rows[item_row], v.worktree_rows[item_row + 1] = ctx, ctx
+    lines[#lines + 1] = ('%s %s · %s'):format(Context.active() == ctx and '>' or ' ', U.display(vim.fs.basename(ctx.root)), U.display(ctx.branch or 'Detached HEAD'))
+    lines[#lines + 1] = ('  %s%s · Copilot %s'):format(state, unsaved > 0 and (' · %d unsaved'):format(unsaved) or '', ctx.copilot and ctx.copilot.state or 'not started')
   end
   local selected = M.selected(repo)
   lines[#lines + 1] = ''
   if selected then
-    vim.list_extend(lines, { 'Path: ' .. U.display(selected.root), 'Branch: ' .. U.display(selected.branch or 'Detached HEAD'),
-      'Upstream: ' .. (selected.status and selected.status.upstream or 'none'),
-      'Push remote: ' .. (selected.status and (selected.status.push_remote ~= '' and selected.status.push_remote or selected.status.remote) or 'none'),
-      'Last successful fetch: ' .. (repo.fetch_time and os.date('%Y-%m-%d %H:%M:%S', repo.fetch_time) or 'unknown'), selected.error or '' })
+    vim.list_extend(lines, { 'WORKTREE DETAILS · INFORMATION',
+      'Path                    ' .. U.display(selected.root),
+      'Branch                  ' .. U.display(selected.branch or 'Detached HEAD'),
+      'Upstream                ' .. (selected.status and selected.status.upstream or 'none'),
+      'Push remote             ' .. (selected.status and (selected.status.push_remote ~= '' and selected.status.push_remote or selected.status.remote) or 'none'),
+      'Last successful fetch   ' .. (repo.fetch_time and os.date('%Y-%m-%d %H:%M:%S', repo.fetch_time) or 'unknown') })
+    if selected.error then lines[#lines + 1] = U.display(selected.error) end
+  elseif #repo.worktrees == 0 then
+    lines[#lines + 1] = 'No worktrees were found.'
   end
   U.set_lines(v.buf, lines)
   vim.api.nvim_buf_clear_namespace(v.buf, M.ns, 0, -1)
+  highlight(v.buf, 1, 'Title')
+  highlight(v.buf, 2, repo.fetch_error and 'DiagnosticWarn' or 'Comment')
+  local heading_row = 4
+  if C.values.keymaps.local_defaults then
+    highlight(v.buf, heading_row, 'Title')
+    highlight_keys(v.buf, heading_row + 1, lines[heading_row + 1])
+    highlight_keys(v.buf, heading_row + 2, lines[heading_row + 2])
+    heading_row = heading_row + 4
+  end
+  highlight(v.buf, heading_row, 'Title')
   for i, ctx in ipairs(repo.worktrees) do
     local s = ctx.status
-    if ctx.error or ctx.missing then paint(v.buf, i + 2, 'DiagnosticError')
-    elseif s and s.conflicts > 0 then paint(v.buf, i + 2, 'DiagnosticError')
-    elseif s and s.added > 0 then paint(v.buf, i + 2, 'WorktreeReviewAdded')
-    elseif s and s.deleted > 0 then paint(v.buf, i + 2, 'WorktreeReviewDeleted')
-    elseif s and s.changed > 0 then paint(v.buf, i + 2, 'WorktreeReviewChanged') end
-    local line = lines[i + 2]
+    local item_row = v.worktree_item_rows[i]
+    if ctx.error or ctx.missing then paint(v.buf, item_row, 'DiagnosticError')
+    elseif s and s.conflicts > 0 then paint(v.buf, item_row, 'DiagnosticError')
+    elseif s and s.added > 0 then paint(v.buf, item_row, 'WorktreeReviewAdded')
+    elseif s and s.deleted > 0 then paint(v.buf, item_row, 'WorktreeReviewDeleted')
+    elseif s and s.changed > 0 then paint(v.buf, item_row, 'WorktreeReviewChanged') end
+    highlight(v.buf, item_row + 1, 'Comment')
+    local line = lines[item_row + 1]
     local start = line:find('%+%d+ ~%d+ %-%d+')
     if start then
       for _, part in ipairs({ { '%+%d+', 'WorktreeReviewAdded' }, { '~%d+', 'WorktreeReviewChanged' }, { '%-%d+', 'WorktreeReviewDeleted' } }) do
         local first, last = line:find(part[1], start)
-        if first then vim.api.nvim_buf_add_highlight(v.buf, M.ns, part[2], i + 1, first - 1, last) end
+        if first then highlight(v.buf, item_row + 1, part[2], first - 1, last) end
       end
     end
+  end
+  local info_row = v.first_worktree_row + #repo.worktrees * 2 + 1
+  if selected then
+    highlight(v.buf, info_row, 'Title')
+    for i = 1, 5 do highlight(v.buf, info_row + i, 'Comment', 0, 24) end
   end
 end
 function M.overview(repo)
@@ -79,9 +129,16 @@ function M.overview(repo)
   if v and valid(v.win) then vim.api.nvim_set_current_win(v.win)
   else
     local b = v and vim.api.nvim_buf_is_valid(v.buf) and v.buf or U.scratch('worktrees')
-    local width, height = math.max(20, vim.o.columns - 4), math.max(4, vim.o.lines - 6)
-    local w = vim.api.nvim_open_win(b, true, { relative = 'editor', border = 'rounded', style = 'minimal', row = 1, col = 1, width = width, height = height, title = ' Worktree Review ' })
+    local width, height = math.min(112, vim.o.columns - 6), math.min(34, vim.o.lines - 5)
+    local w = U.float(b, width, height, {
+      title = ' Worktree Review ',
+      footer = C.values.keymaps.local_defaults and ' [Enter] Open · [a] Create · [?] Help · [q] Close ' or ' Worktree overview ',
+    })
     repo.overview = { buf = b, win = w }
+    vim.wo[w].wrap = false
+    vim.wo[w].cursorline = true
+    vim.wo[w].number = false
+    vim.wo[w].signcolumn = 'no'
     common(b)
     map(b, '<CR>', function() local ctx = M.selected(repo); if ctx then M.hide_overview(repo); M.open(ctx) end end)
     map(b, 'q', function() M.hide_overview(repo) end)
@@ -112,7 +169,7 @@ end
 function M.render_lists(ctx)
   if not ctx.ui then return end
   local v = ctx.ui
-  local nav = { 'Current Changes', 'History' }
+  local nav = { 'Current Changes [Enter]', 'History · commit below' }
   for _, commit in ipairs(ctx.history or {}) do nav[#nav + 1] = commit.short .. ' ' .. U.display(commit.subject) end
   nav[#nav + 1] = '+ Load more'
   if ctx.status and not ctx.status.head then nav[2] = 'No commits yet' end
@@ -136,6 +193,13 @@ function M.render_lists(ctx)
   v.file_rows = entries
   U.set_lines(v.files_buf, rows)
   vim.api.nvim_buf_clear_namespace(v.files_buf, M.ns, 0, -1)
+  vim.api.nvim_buf_clear_namespace(v.nav_buf, M.ns, 0, -1)
+  highlight(v.nav_buf, 1, 'SpecialKey')
+  highlight(v.nav_buf, 2, 'Title')
+  for i = 3, #nav do highlight(v.nav_buf, i, 'SpecialKey') end
+  for row in ipairs(rows) do
+    if not entries[row] then highlight(v.files_buf, row, 'Title') end
+  end
   for row, entry in pairs(entries) do
     local kind = entry.group == 'unstaged' and entry.y or entry.x
     paint(v.files_buf, row, entry.conflict and 'DiagnosticError' or ((entry.untracked or kind == 'A') and 'WorktreeReviewAdded' or (kind == 'D' and 'WorktreeReviewDeleted' or 'WorktreeReviewChanged')))
@@ -276,6 +340,14 @@ function M.open(ctx)
   vim.api.nvim_win_set_width(nav_win, C.values.review.navigation_width)
   vim.api.nvim_win_set_width(files_win, C.values.review.files_width)
   for _, w in ipairs({ nav_win, files_win }) do vim.wo[w].wrap = false; vim.wo[w].number = false; vim.wo[w].relativenumber = false; vim.wo[w].winfixwidth = true end
+  vim.wo[nav_win].cursorline, vim.wo[files_win].cursorline = true, true
+  if C.values.keymaps.local_defaults then
+    vim.wo[nav_win].winbar = '%#Title#HISTORY%* · %#SpecialKey#Enter%* select'
+    vim.wo[files_win].winbar = '%#Title#FILES%* · %#SpecialKey#Enter%* diff · %#SpecialKey#s/u%* stage'
+  else
+    vim.wo[nav_win].winbar = ' HISTORY '
+    vim.wo[files_win].winbar = ' FILES '
+  end
   for _, b in ipairs({ nav_buf, files_buf }) do
     vim.b[b].worktree_review_context = ctx.id
     common(b, ctx)

@@ -85,6 +85,13 @@ move between panes. Native Ctrl-w navigation and `]c` / `[c` work in diff panes.
 History: `+` loads another page, `i` shows commit details, `m` selects a merge
 commit parent (first parent is the default). `L` explicitly loads a large file.
 
+The overview, commit draft, and detail/help surfaces use centered rounded
+floating windows. The overview separates selectable worktrees and highlighted
+actions from read-only worktree details; review panes keep Neovim's native
+side-by-side diff editing and show concise pane labels and key hints. Hints are
+shown only when `keymaps.local_defaults` is enabled.
+Design references and primary-source citations: [UI research notes](notes/ui-design-research.md).
+
 No global mappings are created by default. Optional mappings:
 
 ```lua
