@@ -62,14 +62,24 @@ Outside a repository the plugin reports a discovery error, without Git init.
 KEYS                                             *worktree-review-keys*
 
 Overview: Enter opens, a creates, d removes, f fetches, p pulls, P pushes,
-E shows fetch errors. Navigation: j/k preview selections; Enter applies or
-focuses a diff. History: + loads another page, i shows details, m chooses a
-merge parent. File list: s stages, u unstages, e edits current Working File,
-Space marks files, S/U stage/unstage marked files, L explicitly loads large
-content. Lists: c commit, r refresh, q hide, ? help, Tab/Shift-Tab focus pane.
-Diffs: native ]c/[c, Ctrl-w and normal editing. Commit: Ctrl-s submits,
-q in normal mode closes while retaining draft. No global mappings by default.
-Terminal keys remain available to Copilot; use terminal-normal mode for Ex.
+E shows fetch errors. Review navigation: j/k preview selections; Enter applies
+the current comparison or focuses a file diff. History: + loads another page,
+i shows details, m chooses a merge parent. File list: s stages, u unstages,
+e edits current Working File, Space marks files, S/U stage/unstage marked
+files, L explicitly loads large content. Lists: c commit, r refresh, q hide,
+? help, Tab/Shift-Tab focus pane. Diffs: native ]c/[c, Ctrl-w and normal
+editing. Commit: Ctrl-s submits, q in normal mode closes while retaining draft.
+No global mappings by default. Terminal keys remain available to Copilot; use
+terminal-normal mode for Ex.
+
+OVERVIEW UI                                   *worktree-review-ui*
+
+The overview, commit draft, and information/help panels are centered floating
+windows with rounded borders. The overview separates its selectable worktree
+rows and highlighted action legend from read-only worktree details. Review
+keeps the native side-by-side diff panes, with concise pane labels and
+keybinding hints. Hints are hidden when keymaps.local_defaults=false; the
+command and diff/edit workflows remain available.
 
 ==============================================================================
 COMPARISONS                                      *worktree-review-diff*

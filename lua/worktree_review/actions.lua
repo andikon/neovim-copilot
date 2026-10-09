@@ -260,8 +260,10 @@ function M.commit(ctx)
     vim.bo[b].modifiable = true
     vim.bo[b].filetype = 'gitcommit'
     vim.b[b].worktree_review_context = ctx.id
-    local w = vim.api.nvim_open_win(b, true, { relative = 'editor', border = 'rounded', width = math.max(20, math.min(80, vim.o.columns - 4)), height = math.max(3, math.min(15, vim.o.lines - 5)), row = 2, col = 2,
-      title = ' Commit · ' .. U.display(s.branch) .. ' · ' .. s.staged .. ' staged ', footer = ' Ctrl-s commit · q close (draft retained) ' })
+    local w = U.float(b, math.min(80, vim.o.columns - 4), math.min(15, vim.o.lines - 5), {
+      title = ' Commit · ' .. U.display(s.branch) .. ' · ' .. s.staged .. ' staged ',
+      footer = ' Ctrl-s commit · q close (draft retained) ',
+    })
     ctx.commit_window = w
     ctx.commit_index = G.text(ctx.root, { 'write-tree' })
     local function submit()

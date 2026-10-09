@@ -66,10 +66,23 @@ function M.set_lines(b, lines)
   vim.bo[b].modifiable = false
   vim.bo[b].modified = false
 end
+function M.float(b, width, height, opts)
+  opts = opts or {}
+  width = math.max(1, math.min(width, vim.o.columns - 2))
+  height = math.max(1, math.min(height, vim.o.lines - 3))
+  return vim.api.nvim_open_win(b, true, vim.tbl_extend('force', {
+    relative = 'editor',
+    style = 'minimal',
+    border = 'rounded',
+    width = width,
+    height = height,
+    row = math.max(0, math.floor((vim.o.lines - height - 1) / 2)),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+  }, opts))
+end
 function M.details(title, text)
   local b = M.scratch(title, M.lines(text))
-  local w = vim.api.nvim_open_win(b, true, { relative = 'editor', style = 'minimal', border = 'rounded',
-    width = math.max(20, math.min(100, vim.o.columns - 4)), height = math.max(3, math.min(25, vim.o.lines - 4)), row = 1, col = 2, title = title })
+  local w = M.float(b, math.min(100, vim.o.columns - 4), math.min(25, vim.o.lines - 4), { title = title })
   vim.keymap.set('n', 'q', function() if vim.api.nvim_win_is_valid(w) then vim.api.nvim_win_close(w, true) end end, { buffer = b })
 end
 return M
